@@ -1,0 +1,4347 @@
+# DealForge API contract. x-status/x-ticket mark implemented vs pending operations.
+openapi: 3.1.0
+info:
+  title: DealForge API
+  version: 0.1.0
+  description:
+    CPQ and deal-desk API. Every response uses the envelope `{ success, data, error, meta?
+    }`. Money is integer minor units and percentages are integer basis points (ADR-0013). Operations carry
+    `x-status` (implemented or pending) and `x-ticket` (backlog id). Pending operations run authentication
+    and permission guards, then answer 501 with their ticket. See docs/api/README.md.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://localhost:4104/api/v1
+    description: Local API (development)
+  - url: http://localhost:5174/api/v1
+    description: Local web dev-server proxy (same origin as the browser app)
+security:
+  - cookieAuth: []
+tags:
+  - name: Health
+    description: Liveness and readiness
+  - name: Auth
+    description: Sessions and identity
+  - name: Catalog
+    description: Products, options and bundles (FR-01, FR-03, FR-04)
+  - name: Pricing
+    description: Price books, rules and simulation (FR-02, FR-05)
+  - name: Customers
+    description: Customer accounts and contacts
+  - name: Quotes
+    description: Quote families, immutable versions and lifecycle (FR-06, FR-07)
+  - name: Approvals
+    description: Approval inbox and decisions (FR-08)
+  - name: Proposals
+    description: Printable proposal and sharing (FR-09)
+  - name: Customer portal
+    description: Customer view and acknowledgment (FR-09)
+  - name: Reporting
+    description: Dashboard, reports, notifications, audit (FR-10)
+  - name: Admin
+    description: Users and organization settings
+paths:
+  /health/live:
+    get:
+      operationId: getLiveness
+      tags:
+        - Health
+      summary: Liveness probe (no dependencies)
+      description: ''
+      x-status: implemented
+      x-ticket: DF-003
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/HealthStatus'
+                  error:
+                    type: 'null'
+    servers:
+      - url: http://localhost:4104/api
+        description: Health endpoints live outside /api/v1
+  /health/ready:
+    get:
+      operationId: getReadiness
+      tags:
+        - Health
+      summary: Readiness probe (checks PostgreSQL)
+      description: ''
+      x-status: implemented
+      x-ticket: DF-003
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/HealthStatus'
+                  error:
+                    type: 'null'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    servers:
+      - url: http://localhost:4104/api
+        description: Health endpoints live outside /api/v1
+  /auth/login:
+    post:
+      operationId: login
+      tags:
+        - Auth
+      summary: Sign in with email and password
+      description:
+        Sets the HTTP-only `sid` session cookie and returns the CSRF token. Rate limited (AUTH_RATE_LIMIT_MAX
+        per window). Failures return a generic 401.
+      x-status: implemented
+      x-ticket: DF-002
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/SessionResponse'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /auth/session:
+    get:
+      operationId: getSession
+      tags:
+        - Auth
+      summary: Current session and CSRF token
+      description: Requires an authenticated session.
+      x-status: implemented
+      x-ticket: DF-002
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/SessionResponse'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+  /auth/logout:
+    post:
+      operationId: logout
+      tags:
+        - Auth
+      summary: Sign out and revoke the session
+      description: Requires an authenticated session.
+      x-status: implemented
+      x-ticket: DF-002
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    type: object
+                    properties:
+                      loggedOut:
+                        const: true
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /me:
+    get:
+      operationId: getMe
+      tags:
+        - Auth
+      summary: Current user
+      description: Requires an authenticated session.
+      x-status: implemented
+      x-ticket: DF-002
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/SessionUser'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+  /auth/organizations:
+    get:
+      operationId: listMyOrganizations
+      tags:
+        - Auth
+      summary: Organizations the caller belongs to
+      description:
+        'Requires an authenticated session. Not implemented yet: responds 501 with ticket DF-008
+        after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-008
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OrganizationMembership'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /products:
+    get:
+      operationId: listProducts
+      tags:
+        - Catalog
+      summary: List catalog products (sorted by SKU)
+      description: Requires permission `catalog:read`.
+      x-status: implemented
+      x-ticket: DF-011
+      x-permission: catalog:read
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                  - meta
+                properties:
+                  success:
+                    const: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Product'
+                  error:
+                    type: 'null'
+                  meta:
+                    $ref: '#/components/schemas/PageMeta'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: createProduct
+      tags:
+        - Catalog
+      summary: Create a catalog product
+      description:
+        'SKU is normalised to upper case and must be unique per organization. Writes a `product.created`
+        audit event in the same transaction.
+
+
+        Requires permission `catalog:write`.'
+      x-status: implemented
+      x-ticket: DF-011
+      x-permission: catalog:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductRequest'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/Product'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+  /products/{id}:
+    get:
+      operationId: getProduct
+      tags:
+        - Catalog
+      summary: Get a product by id
+      description: 'Ids belonging to other organizations, and malformed ids, return 404.
+
+
+        Requires permission `catalog:read`.'
+      x-status: implemented
+      x-ticket: DF-011
+      x-permission: catalog:read
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/Product'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      operationId: updateProduct
+      tags:
+        - Catalog
+      summary: Edit a product
+      description:
+        'Requires permission `catalog:write`. Not implemented yet: responds 501 with ticket
+        DF-013 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-013
+      x-permission: catalog:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProductRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/Product'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /products/{id}/archive:
+    post:
+      operationId: archiveProduct
+      tags:
+        - Catalog
+      summary: Archive a product (historical quotes keep snapshots)
+      description:
+        'Requires permission `catalog:write`. Not implemented yet: responds 501 with ticket
+        DF-013 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-013
+      x-permission: catalog:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/Product'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /products/import:
+    post:
+      operationId: importProducts
+      tags:
+        - Catalog
+      summary: Preview or commit a CSV product import
+      description:
+        'Requires permission `catalog:write`. Not implemented yet: responds 501 with ticket
+        DF-015 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-015
+      x-permission: catalog:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - name: dryRun
+          in: query
+          schema:
+            type: boolean
+            default: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - csv
+              properties:
+                csv:
+                  type: string
+                onConflict:
+                  enum:
+                    - SKIP
+                    - UPDATE
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/ImportResult'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /products/{id}/options:
+    get:
+      operationId: listProductOptions
+      tags:
+        - Catalog
+      summary: List option groups and options
+      description:
+        'Requires permission `catalog:read`. Not implemented yet: responds 501 with ticket
+        DF-016 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-016
+      x-permission: catalog:read
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OptionGroup'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+    post:
+      operationId: createOptionGroup
+      tags:
+        - Catalog
+      summary: Create an option group with options
+      description:
+        'Requires permission `catalog:write`. Not implemented yet: responds 501 with ticket
+        DF-016 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-016
+      x-permission: catalog:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OptionGroup'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/OptionGroup'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /products/{id}/incompatibilities:
+    post:
+      operationId: createIncompatibility
+      tags:
+        - Catalog
+      summary: Declare two options mutually incompatible
+      description:
+        'Requires permission `catalog:write`. Not implemented yet: responds 501 with ticket
+        DF-017 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-017
+      x-permission: catalog:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - optionIdA
+                - optionIdB
+              properties:
+                optionIdA:
+                  type: string
+                  format: uuid
+                optionIdB:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    type: object
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /bundles:
+    get:
+      operationId: listBundles
+      tags:
+        - Catalog
+      summary: List bundles
+      description:
+        'Requires permission `catalog:read`. Not implemented yet: responds 501 with ticket
+        DF-019 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-019
+      x-permission: catalog:read
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                  - meta
+                properties:
+                  success:
+                    const: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Bundle'
+                  error:
+                    type: 'null'
+                  meta:
+                    $ref: '#/components/schemas/PageMeta'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+    post:
+      operationId: createBundle
+      tags:
+        - Catalog
+      summary: Create a bundle (one level only)
+      description:
+        'Requires permission `catalog:write`. Not implemented yet: responds 501 with ticket
+        DF-019 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-019
+      x-permission: catalog:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Bundle'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/Bundle'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /bundles/{id}:
+    get:
+      operationId: getBundle
+      tags:
+        - Catalog
+      summary: Get a bundle
+      description:
+        'Requires permission `catalog:read`. Not implemented yet: responds 501 with ticket
+        DF-019 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-019
+      x-permission: catalog:read
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/Bundle'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+    patch:
+      operationId: updateBundle
+      tags:
+        - Catalog
+      summary: Edit a bundle (creates a new bundle version)
+      description:
+        'Requires permission `catalog:write`. Not implemented yet: responds 501 with ticket
+        DF-019 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-019
+      x-permission: catalog:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Bundle'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/Bundle'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /price-books:
+    get:
+      operationId: listPriceBooks
+      tags:
+        - Pricing
+      summary: List price books
+      description:
+        'Requires permission `pricing:read`. Not implemented yet: responds 501 with ticket
+        DF-024 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-024
+      x-permission: pricing:read
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                  - meta
+                properties:
+                  success:
+                    const: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PriceBook'
+                  error:
+                    type: 'null'
+                  meta:
+                    $ref: '#/components/schemas/PageMeta'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+    post:
+      operationId: createPriceBook
+      tags:
+        - Pricing
+      summary: Create a draft price book
+      description:
+        'Requires permission `pricing:write`. Not implemented yet: responds 501 with ticket
+        DF-024 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-024
+      x-permission: pricing:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PriceBook'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/PriceBook'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /price-books/{id}:
+    get:
+      operationId: getPriceBook
+      tags:
+        - Pricing
+      summary: Get a price book with lines
+      description:
+        'Requires permission `pricing:read`. Not implemented yet: responds 501 with ticket
+        DF-024 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-024
+      x-permission: pricing:read
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/PriceBook'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+    patch:
+      operationId: updatePriceBook
+      tags:
+        - Pricing
+      summary: Edit a draft price book
+      description:
+        'Requires permission `pricing:write`. Not implemented yet: responds 501 with ticket
+        DF-024 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-024
+      x-permission: pricing:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PriceBook'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/PriceBook'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /price-books/{id}/publish:
+    post:
+      operationId: publishPriceBook
+      tags:
+        - Pricing
+      summary: Publish a price book (becomes immutable)
+      description:
+        'Requires permission `pricing:write`. Not implemented yet: responds 501 with ticket
+        DF-024 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-024
+      x-permission: pricing:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/PriceBook'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /pricing-rules:
+    get:
+      operationId: listPricingRules
+      tags:
+        - Pricing
+      summary: List pricing rules
+      description:
+        'Requires permission `pricing:read`. Not implemented yet: responds 501 with ticket
+        DF-026 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-026
+      x-permission: pricing:read
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: priceBookId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                  - meta
+                properties:
+                  success:
+                    const: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PricingRule'
+                  error:
+                    type: 'null'
+                  meta:
+                    $ref: '#/components/schemas/PageMeta'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+    post:
+      operationId: createPricingRule
+      tags:
+        - Pricing
+      summary: Create a declarative pricing rule
+      description:
+        'Requires permission `pricing:write`. Not implemented yet: responds 501 with ticket
+        DF-026 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-026
+      x-permission: pricing:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PricingRule'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/PricingRule'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /pricing-rules/{id}:
+    patch:
+      operationId: updatePricingRule
+      tags:
+        - Pricing
+      summary: Edit a pricing rule of a draft price book
+      description:
+        'Requires permission `pricing:write`. Not implemented yet: responds 501 with ticket
+        DF-026 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-026
+      x-permission: pricing:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PricingRule'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/PricingRule'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /pricing/simulate:
+    post:
+      operationId: simulatePricing
+      tags:
+        - Pricing
+      summary: Price a draft line set without persisting
+      description:
+        'Requires permission `pricing:read`. Not implemented yet: responds 501 with ticket
+        DF-028 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-028
+      x-permission: pricing:read
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - priceBookId
+                - lines
+              properties:
+                priceBookId:
+                  type: string
+                  format: uuid
+                customerTier:
+                  type:
+                    - string
+                    - 'null'
+                lines:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/QuoteLineInput'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/PricingBreakdown'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /customers:
+    get:
+      operationId: listCustomers
+      tags:
+        - Customers
+      summary: List customers
+      description:
+        'Requires permission `customers:read`. Not implemented yet: responds 501 with ticket
+        DF-030 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-030
+      x-permission: customers:read
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                  - meta
+                properties:
+                  success:
+                    const: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Customer'
+                  error:
+                    type: 'null'
+                  meta:
+                    $ref: '#/components/schemas/PageMeta'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+    post:
+      operationId: createCustomer
+      tags:
+        - Customers
+      summary: Create a customer
+      description:
+        'Requires permission `customers:write`. Not implemented yet: responds 501 with ticket
+        DF-030 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-030
+      x-permission: customers:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Customer'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/Customer'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /customers/{id}:
+    get:
+      operationId: getCustomer
+      tags:
+        - Customers
+      summary: Get a customer
+      description:
+        'Requires permission `customers:read`. Not implemented yet: responds 501 with ticket
+        DF-030 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-030
+      x-permission: customers:read
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/Customer'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+    patch:
+      operationId: updateCustomer
+      tags:
+        - Customers
+      summary: Edit a customer
+      description:
+        'Requires permission `customers:write`. Not implemented yet: responds 501 with ticket
+        DF-030 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-030
+      x-permission: customers:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Customer'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/Customer'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /customers/{id}/contacts:
+    get:
+      operationId: listContacts
+      tags:
+        - Customers
+      summary: List customer contacts
+      description:
+        'Requires permission `customers:read`. Not implemented yet: responds 501 with ticket
+        DF-030 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-030
+      x-permission: customers:read
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CustomerContact'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+    post:
+      operationId: createContact
+      tags:
+        - Customers
+      summary: Add a customer contact
+      description:
+        'Requires permission `customers:write`. Not implemented yet: responds 501 with ticket
+        DF-030 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-030
+      x-permission: customers:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomerContact'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/CustomerContact'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /quotes:
+    get:
+      operationId: listQuotes
+      tags:
+        - Quotes
+      summary: List quote families visible to the caller
+      description: 'Reps see their own quotes; managers see their team.
+
+
+        Requires permission `quotes:read`. Not implemented yet: responds 501 with ticket DF-032 after
+        authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-032
+      x-permission: quotes:read
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                  - meta
+                properties:
+                  success:
+                    const: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/QuoteFamily'
+                  error:
+                    type: 'null'
+                  meta:
+                    $ref: '#/components/schemas/PageMeta'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+    post:
+      operationId: createQuote
+      tags:
+        - Quotes
+      summary: Create a quote family with version 1 in DRAFT
+      description:
+        'Requires permission `quotes:write`. Not implemented yet: responds 501 with ticket
+        DF-032 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-032
+      x-permission: quotes:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - customerId
+                - customerContactId
+                - priceBookId
+                - validUntil
+              properties:
+                customerId:
+                  type: string
+                  format: uuid
+                customerContactId:
+                  type: string
+                  format: uuid
+                priceBookId:
+                  type: string
+                  format: uuid
+                title:
+                  type: string
+                validUntil:
+                  type: string
+                  format: date
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/QuoteVersion'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /quotes/{id}:
+    get:
+      operationId: getQuote
+      tags:
+        - Quotes
+      summary: Get a quote family
+      description:
+        'Requires permission `quotes:read`. Not implemented yet: responds 501 with ticket DF-032
+        after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-032
+      x-permission: quotes:read
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/QuoteFamily'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /quotes/{id}/versions:
+    get:
+      operationId: listQuoteVersions
+      tags:
+        - Quotes
+      summary: List immutable versions of a quote family
+      description:
+        'Requires permission `quotes:read`. Not implemented yet: responds 501 with ticket DF-032
+        after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-032
+      x-permission: quotes:read
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/QuoteVersion'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /quote-versions/{id}:
+    get:
+      operationId: getQuoteVersion
+      tags:
+        - Quotes
+      summary: Get a quote version with lines and breakdown
+      description:
+        'Requires permission `quotes:read`. Not implemented yet: responds 501 with ticket DF-032
+        after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-032
+      x-permission: quotes:read
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/QuoteVersion'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+    patch:
+      operationId: updateQuoteVersion
+      tags:
+        - Quotes
+      summary: Replace lines/terms of a DRAFT version
+      description:
+        'Requires permission `quotes:write`. Not implemented yet: responds 501 with ticket
+        DF-035 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-035
+      x-permission: quotes:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - optimisticVersion
+              properties:
+                optimisticVersion:
+                  type: integer
+                termsText:
+                  type: string
+                validUntil:
+                  type: string
+                  format: date
+                lines:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/QuoteLineInput'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/QuoteVersion'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /quote-versions/{id}/calculate:
+    post:
+      operationId: calculateQuoteVersion
+      tags:
+        - Quotes
+      summary: Recalculate totals server-side
+      description:
+        'Client-supplied totals are ignored; totals always come from priceQuote() over price-book
+        and rule snapshots.
+
+
+        Requires permission `quotes:write`. Not implemented yet: responds 501 with ticket DF-035 after
+        authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-035
+      x-permission: quotes:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/PricingBreakdown'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /quote-versions/{id}/submit:
+    post:
+      operationId: submitQuoteVersion
+      tags:
+        - Quotes
+      summary: Submit a version (creates approval steps)
+      description:
+        'Requires permission `quotes:write`. Not implemented yet: responds 501 with ticket
+        DF-041 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-041
+      x-permission: quotes:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/QuoteVersion'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /quote-versions/{id}/clone-revision:
+    post:
+      operationId: cloneQuoteRevision
+      tags:
+        - Quotes
+      summary: Clone into a new DRAFT version
+      description:
+        'Requires permission `quotes:write`. Not implemented yet: responds 501 with ticket
+        DF-038 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-038
+      x-permission: quotes:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/QuoteVersion'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /quote-versions/{id}/reprice:
+    post:
+      operationId: repriceQuoteVersion
+      tags:
+        - Quotes
+      summary: Reprice into a new version against a newer price book
+      description:
+        'Requires permission `quotes:write`. Not implemented yet: responds 501 with ticket
+        DF-038 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-038
+      x-permission: quotes:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - priceBookId
+              properties:
+                priceBookId:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/QuoteVersion'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /quote-versions/{id}/withdraw:
+    post:
+      operationId: withdrawQuoteVersion
+      tags:
+        - Quotes
+      summary: Withdraw a version with a reason
+      description:
+        'Requires permission `quotes:write`. Not implemented yet: responds 501 with ticket
+        DF-037 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-037
+      x-permission: quotes:write
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - reason
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 1000
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/QuoteVersion'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /approvals:
+    get:
+      operationId: listApprovals
+      tags:
+        - Approvals
+      summary: Approval inbox for the caller's role
+      description:
+        'Requires permission `approvals:read`. Not implemented yet: responds 501 with ticket
+        DF-041 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-041
+      x-permission: approvals:read
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                  - meta
+                properties:
+                  success:
+                    const: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApprovalStep'
+                  error:
+                    type: 'null'
+                  meta:
+                    $ref: '#/components/schemas/PageMeta'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /approvals/{id}:
+    get:
+      operationId: getApproval
+      tags:
+        - Approvals
+      summary: Get an approval step with its version
+      description:
+        'Requires permission `approvals:read`. Not implemented yet: responds 501 with ticket
+        DF-042 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-042
+      x-permission: approvals:read
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/ApprovalStep'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /approvals/{id}/decision:
+    post:
+      operationId: decideApproval
+      tags:
+        - Approvals
+      summary: Approve, reject or request changes
+      description:
+        'Idempotent per Idempotency-Key; optimistic locking on the version rejects stale decisions
+        with 409. The quote owner can never approve.
+
+
+        Requires permission `approvals:decide`. Not implemented yet: responds 501 with ticket DF-042 after
+        authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-042
+      x-permission: approvals:decide
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalDecisionRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/ApprovalStep'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /quote-versions/{id}/print:
+    get:
+      operationId: printQuoteVersion
+      tags:
+        - Proposals
+      summary: Printable proposal HTML (no cost or margin)
+      description:
+        'Requires permission `quotes:read`. Not implemented yet: responds 501 with ticket DF-046
+        after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-046
+      x-permission: quotes:read
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Print-optimised HTML
+          content:
+            text/html:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /quote-versions/{id}/share:
+    post:
+      operationId: shareQuoteVersion
+      tags:
+        - Proposals
+      summary: Grant a customer contact access to an approved version
+      description:
+        'Requires permission `proposals:share`. Not implemented yet: responds 501 with ticket
+        DF-045 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-045
+      x-permission: proposals:share
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - customerContactId
+              properties:
+                customerContactId:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/CustomerGrant'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /quote-versions/{id}/share/{grantId}:
+    delete:
+      operationId: revokeQuoteShare
+      tags:
+        - Proposals
+      summary: Revoke a customer grant
+      description:
+        'Requires permission `proposals:share`. Not implemented yet: responds 501 with ticket
+        DF-045 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-045
+      x-permission: proposals:share
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - name: grantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/CustomerGrant'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /customer/quotes:
+    get:
+      operationId: listCustomerQuotes
+      tags:
+        - Customer portal
+      summary: Versions shared with the calling contact
+      description:
+        'Requires permission `portal:access`. Not implemented yet: responds 501 with ticket
+        DF-047 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-047
+      x-permission: portal:access
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CustomerQuote'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /customer/quotes/{id}:
+    get:
+      operationId: getCustomerQuote
+      tags:
+        - Customer portal
+      summary: View a shared version (redacted)
+      description:
+        'Versions without an active grant for the caller return 404. The response never contains
+        cost, margin or internal notes.
+
+
+        Requires permission `portal:access`. Not implemented yet: responds 501 with ticket DF-047 after
+        authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-047
+      x-permission: portal:access
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/CustomerQuote'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /customer/quotes/{id}/acknowledge:
+    post:
+      operationId: acknowledgeCustomerQuote
+      tags:
+        - Customer portal
+      summary: Record acceptance or rejection (demo acknowledgment)
+      description:
+        'Not a legal electronic signature. Expired versions are rejected with renewal instructions;
+        a version can be acknowledged once.
+
+
+        Requires permission `portal:access`. Not implemented yet: responds 501 with ticket DF-047 after
+        authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-047
+      x-permission: portal:access
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - outcome
+              properties:
+                outcome:
+                  enum:
+                    - ACCEPTED
+                    - REJECTED
+                note:
+                  type: string
+                  maxLength: 2000
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/CustomerQuote'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /reports/dashboard:
+    get:
+      operationId: getDashboard
+      tags:
+        - Reporting
+      summary: Sales dashboard figures
+      description:
+        'Requires permission `quotes:read`. Not implemented yet: responds 501 with ticket DF-049
+        after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-049
+      x-permission: quotes:read
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/Dashboard'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /reports/quotes:
+    get:
+      operationId: getQuoteReport
+      tags:
+        - Reporting
+      summary: Quoted revenue, win rate, discount trend, top SKUs, turnaround
+      description:
+        'Requires permission `reports:read`. Not implemented yet: responds 501 with ticket
+        DF-050 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-050
+      x-permission: reports:read
+      security:
+        - cookieAuth: []
+      parameters:
+        - &id001
+          name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - &id002
+          name: to
+          in: query
+          schema:
+            type: string
+            format: date
+        - &id003
+          name: customerId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - &id004
+          name: ownerId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - &id005
+          name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    type: object
+                    additionalProperties: true
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /reports/export.csv:
+    get:
+      operationId: exportQuoteReport
+      tags:
+        - Reporting
+      summary: CSV export of the filtered report
+      description:
+        'Requires permission `reports:read`. Not implemented yet: responds 501 with ticket
+        DF-051 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-051
+      x-permission: reports:read
+      security:
+        - cookieAuth: []
+      parameters:
+        - *id001
+        - *id002
+        - *id003
+        - *id004
+        - *id005
+      responses:
+        '200':
+          description: CSV
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /notifications:
+    get:
+      operationId: listNotifications
+      tags:
+        - Reporting
+      summary: Caller's in-app notifications
+      description:
+        'Requires permission `notifications:read`. Not implemented yet: responds 501 with ticket
+        DF-052 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-052
+      x-permission: notifications:read
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                  - meta
+                properties:
+                  success:
+                    const: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Notification'
+                  error:
+                    type: 'null'
+                  meta:
+                    $ref: '#/components/schemas/PageMeta'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /notifications/{id}/read:
+    post:
+      operationId: markNotificationRead
+      tags:
+        - Reporting
+      summary: Mark a notification read (idempotent)
+      description:
+        'Requires permission `notifications:read`. Not implemented yet: responds 501 with ticket
+        DF-052 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-052
+      x-permission: notifications:read
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/Notification'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /audit-logs:
+    get:
+      operationId: listAuditLogs
+      tags:
+        - Reporting
+      summary: Append-only audit history
+      description:
+        'Requires permission `audit:read`. Not implemented yet: responds 501 with ticket DF-053
+        after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-053
+      x-permission: audit:read
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: entityType
+          in: query
+          schema:
+            type: string
+        - name: entityId
+          in: query
+          schema:
+            type: string
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                  - meta
+                properties:
+                  success:
+                    const: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditEvent'
+                  error:
+                    type: 'null'
+                  meta:
+                    $ref: '#/components/schemas/PageMeta'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /users:
+    get:
+      operationId: listUsers
+      tags:
+        - Admin
+      summary: List users in the organization
+      description:
+        'Requires permission `users:manage`. Not implemented yet: responds 501 with ticket
+        DF-009 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-009
+      x-permission: users:manage
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                  - meta
+                properties:
+                  success:
+                    const: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SessionUser'
+                  error:
+                    type: 'null'
+                  meta:
+                    $ref: '#/components/schemas/PageMeta'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+    post:
+      operationId: createUser
+      tags:
+        - Admin
+      summary: Invite a user
+      description:
+        'Requires permission `users:manage`. Not implemented yet: responds 501 with ticket
+        DF-009 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-009
+      x-permission: users:manage
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - displayName
+                - role
+              properties:
+                email:
+                  type: string
+                  format: email
+                displayName:
+                  type: string
+                role:
+                  $ref: '#/components/schemas/Role'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/SessionUser'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /users/{id}:
+    patch:
+      operationId: updateUser
+      tags:
+        - Admin
+      summary: Change role or deactivate a user
+      description:
+        'Requires permission `users:manage`. Not implemented yet: responds 501 with ticket
+        DF-009 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-009
+      x-permission: users:manage
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  $ref: '#/components/schemas/Role'
+                isActive:
+                  type: boolean
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/SessionUser'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /organization/settings:
+    get:
+      operationId: getOrganizationSettings
+      tags:
+        - Admin
+      summary: Organization pricing settings
+      description:
+        'Requires permission `settings:manage`. Not implemented yet: responds 501 with ticket
+        DF-010 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-010
+      x-permission: settings:manage
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/OrganizationSettings'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+    patch:
+      operationId: updateOrganizationSettings
+      tags:
+        - Admin
+      summary: Update organization pricing settings
+      description:
+        'Requires permission `settings:manage`. Not implemented yet: responds 501 with ticket
+        DF-010 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-010
+      x-permission: settings:manage
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrganizationSettings'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/OrganizationSettings'
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /organization/logo:
+    post:
+      operationId: uploadOrganizationLogo
+      tags:
+        - Admin
+      summary: Upload the proposal logo (local disk)
+      description:
+        'Requires permission `settings:manage`. Not implemented yet: responds 501 with ticket
+        DF-059 after authentication and permission checks.'
+      x-status: pending
+      x-ticket: DF-059
+      x-permission: settings:manage
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                  - error
+                properties:
+                  success:
+                    const: true
+                  data:
+                    type: object
+                    properties:
+                      url:
+                        type: string
+                  error:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sid
+      description: HTTP-only, SameSite=Lax session cookie set by POST /auth/login
+    csrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description:
+        HMAC of the session token returned by login and GET /auth/session; required on unsafe
+        methods together with a matching Origin header
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema: &id006
+        type: string
+        format: uuid
+    page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+  schemas:
+    Role:
+      type: string
+      enum:
+        - SALES_ADMIN
+        - PRICING_MANAGER
+        - SALES_REP
+        - SALES_MANAGER
+        - FINANCE_APPROVER
+        - CUSTOMER_VIEWER
+    ErrorCode:
+      type: string
+      enum:
+        - VALIDATION_FAILED
+        - UNAUTHENTICATED
+        - FORBIDDEN
+        - NOT_FOUND
+        - CONFLICT
+        - INVALID_STATE_TRANSITION
+        - RATE_LIMITED
+        - CSRF_FAILED
+        - NOT_IMPLEMENTED
+        - SERVICE_UNAVAILABLE
+        - INTERNAL_ERROR
+    ErrorBody:
+      type: object
+      properties:
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        message:
+          type: string
+        details:
+          description: Field issues, ticket id, or domainCode for domain rule failures
+        requestId:
+          type: string
+      required:
+        - code
+        - message
+    ErrorEnvelope:
+      type: object
+      properties:
+        success:
+          const: false
+        data:
+          type: 'null'
+        error:
+          $ref: '#/components/schemas/ErrorBody'
+      required:
+        - success
+        - data
+        - error
+    PageMeta:
+      type: object
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+      required:
+        - total
+        - page
+        - limit
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          enum:
+            - ok
+            - ready
+        version:
+          type: string
+      required:
+        - status
+        - version
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 1
+          maxLength: 256
+      required:
+        - email
+        - password
+    SessionUser:
+      type: object
+      properties:
+        id: *id006
+        organizationId: *id006
+        organizationName:
+          type: string
+        currencyCode:
+          type: string
+          minLength: 3
+          maxLength: 3
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+        role:
+          $ref: '#/components/schemas/Role'
+      required:
+        - id
+        - organizationId
+        - organizationName
+        - currencyCode
+        - email
+        - displayName
+        - role
+    SessionResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/SessionUser'
+        csrfToken:
+          type: string
+          minLength: 32
+      required:
+        - user
+        - csrfToken
+    OrganizationMembership:
+      type: object
+      properties:
+        organizationId: *id006
+        organizationName:
+          type: string
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
+    ProductType:
+      type: string
+      enum:
+        - ONE_TIME
+        - RECURRING
+    CreateProductRequest:
+      type: object
+      properties:
+        sku:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$
+          description: Trimmed and upper-cased by the server
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        category:
+          type: string
+          minLength: 1
+          maxLength: 80
+        description:
+          type: string
+          maxLength: 2000
+          default: ''
+        type:
+          $ref: '#/components/schemas/ProductType'
+        unit:
+          type: string
+          minLength: 1
+          maxLength: 40
+        listPriceMinor:
+          type: integer
+          minimum: 0
+          maximum: 100000000000
+        unitCostMinor:
+          type: integer
+          minimum: 0
+          maximum: 100000000000
+        active:
+          type: boolean
+          default: true
+      required:
+        - sku
+        - name
+        - category
+        - type
+        - unit
+        - listPriceMinor
+        - unitCostMinor
+      additionalProperties: false
+    UpdateProductRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        category:
+          type: string
+        description:
+          type: string
+        unit:
+          type: string
+        listPriceMinor:
+          type: integer
+          minimum: 0
+        unitCostMinor:
+          type: integer
+          minimum: 0
+        expectedUpdatedAt: &id007
+          type: string
+          format: date-time
+      additionalProperties: false
+    Product:
+      type: object
+      properties:
+        id: *id006
+        sku:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+        description:
+          type: string
+        type:
+          $ref: '#/components/schemas/ProductType'
+        unit:
+          type: string
+        listPriceMinor:
+          type: integer
+          description: List price (integer minor units)
+        unitCostMinor:
+          type: integer
+          description: Internal unit cost (integer minor units)
+        currencyCode:
+          type: string
+          minLength: 3
+          maxLength: 3
+        active:
+          type: boolean
+        createdAt: *id007
+        updatedAt: *id007
+      required:
+        - id
+        - sku
+        - name
+        - category
+        - description
+        - type
+        - unit
+        - listPriceMinor
+        - unitCostMinor
+        - currencyCode
+        - active
+        - createdAt
+        - updatedAt
+    ImportResult:
+      type: object
+      properties:
+        dryRun:
+          type: boolean
+        created:
+          type: integer
+        updated:
+          type: integer
+        skipped:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              row:
+                type: integer
+              path:
+                type: string
+              message:
+                type: string
+    ProductOption:
+      type: object
+      properties:
+        id: *id006
+        label:
+          type: string
+        priceDeltaMinor:
+          type: integer
+          description: Price delta per unit (integer minor units)
+        costDeltaMinor:
+          type: integer
+          description: Cost delta per unit (integer minor units)
+        active:
+          type: boolean
+    OptionGroup:
+      type: object
+      properties:
+        id: *id006
+        name:
+          type: string
+        required:
+          type: boolean
+        minSelections:
+          type: integer
+          minimum: 0
+        maxSelections:
+          type: integer
+          minimum: 1
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductOption'
+    Bundle:
+      type: object
+      properties:
+        id: *id006
+        code:
+          type: string
+        name:
+          type: string
+        status:
+          enum:
+            - DRAFT
+            - ACTIVE
+            - ARCHIVED
+        version:
+          type: integer
+        components:
+          type: array
+          items:
+            type: object
+            properties:
+              productId: *id006
+              quantity:
+                type: integer
+                minimum: 1
+              required:
+                type: boolean
+              optionIds:
+                type: array
+                items: *id006
+    PriceBook:
+      type: object
+      properties:
+        id: *id006
+        name:
+          type: string
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        status:
+          enum:
+            - DRAFT
+            - PUBLISHED
+        version:
+          type: integer
+        activeFrom: &id008
+          type: string
+          format: date
+        activeUntil:
+          type:
+            - string
+            - 'null'
+          format: date
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              productId: *id006
+              unitListMinor:
+                type: integer
+                description: List price (integer minor units)
+              unitCostMinor:
+                type: integer
+                description: Cost (integer minor units)
+    RuleConditions:
+      type: object
+      properties:
+        productIds:
+          type: array
+          items:
+            type: string
+        productCategories:
+          type: array
+          items:
+            type: string
+        minQuantity:
+          type: integer
+          minimum: 1
+        maxQuantity:
+          type: integer
+          minimum: 1
+        customerTiers:
+          type: array
+          items:
+            type: string
+        bundleCodes:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+      description: Restricted declarative conditions; every present condition must match
+    RuleAction:
+      oneOf:
+        - type: object
+          properties:
+            type:
+              const: PERCENT_DISCOUNT
+            bps:
+              type: integer
+              minimum: 1
+              maximum: 10000
+          required:
+            - type
+            - bps
+        - type: object
+          properties:
+            type:
+              const: FIXED_DISCOUNT
+            amountMinorPerUnit:
+              type: integer
+              minimum: 1
+          required:
+            - type
+            - amountMinorPerUnit
+    PricingRule:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        priceBookId: *id006
+        category:
+          enum:
+            - VOLUME
+            - CUSTOMER_TIER
+            - BUNDLE
+        priority:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        effectiveFrom: *id008
+        effectiveUntil:
+          type:
+            - string
+            - 'null'
+          format: date
+        conditions:
+          $ref: '#/components/schemas/RuleConditions'
+        action:
+          $ref: '#/components/schemas/RuleAction'
+        maxDiscountBps:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: Cap for this rule (basis points)
+      required:
+        - name
+        - category
+        - priority
+        - effectiveFrom
+        - effectiveUntil
+        - conditions
+        - action
+        - maxDiscountBps
+    QuoteLineInput:
+      type: object
+      properties:
+        lineId:
+          type: string
+        productId: *id006
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 1000000
+        billingTermMonths:
+          type:
+            - integer
+            - 'null'
+          minimum: 1
+          maximum: 120
+        optionIds:
+          type: array
+          items: *id006
+        bundleCode:
+          type:
+            - string
+            - 'null'
+        manualDiscountBps:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: Requested manual discount (basis points)
+      required:
+        - productId
+        - quantity
+    PricingStep:
+      type: object
+      properties:
+        kind:
+          enum:
+            - BASE
+            - OPTIONS
+            - VOLUME
+            - CUSTOMER_TIER
+            - BUNDLE
+            - MANUAL
+        ruleId:
+          type:
+            - string
+            - 'null'
+        label:
+          type: string
+        requestedBps:
+          type:
+            - integer
+            - 'null'
+        appliedBps:
+          type:
+            - integer
+            - 'null'
+        deltaMinor:
+          type: integer
+        resultMinor:
+          type: integer
+        capped:
+          type: boolean
+      required:
+        - kind
+        - ruleId
+        - label
+        - requestedBps
+        - appliedBps
+        - deltaMinor
+        - resultMinor
+        - capped
+    PricedLine:
+      type: object
+      properties:
+        lineId:
+          type: string
+        productId:
+          type: string
+        priceType:
+          $ref: '#/components/schemas/ProductType'
+        quantity:
+          type: integer
+        billingTermMonths:
+          type:
+            - integer
+            - 'null'
+        unitListMinor:
+          type: integer
+        unitCostMinor:
+          type: integer
+        effectiveUnitMinor:
+          type: integer
+        grossMinor:
+          type: integer
+        automaticDiscountMinor:
+          type: integer
+        manualDiscountMinor:
+          type: integer
+        manualDiscountBps:
+          type: integer
+        netMinor:
+          type: integer
+        costMinor:
+          type: integer
+        grossProfitMinor:
+          type: integer
+        grossMarginBps:
+          type:
+            - integer
+            - 'null'
+        appliedRuleIds:
+          type: array
+          items:
+            type: string
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/PricingStep'
+    SegmentTotals:
+      type: object
+      properties:
+        lineCount:
+          type: integer
+        grossMinor:
+          type: integer
+        automaticDiscountMinor:
+          type: integer
+        manualDiscountMinor:
+          type: integer
+        netMinor:
+          type: integer
+        costMinor:
+          type: integer
+        grossProfitMinor:
+          type: integer
+        grossMarginBps:
+          type:
+            - integer
+            - 'null'
+          description: null when net revenue is zero
+        discountBps:
+          type:
+            - integer
+            - 'null'
+        contractValueMinor:
+          type: integer
+          description: Recurring segment only
+    ApprovalReason:
+      type: object
+      properties:
+        code:
+          enum:
+            - MANUAL_DISCOUNT_ABOVE_THRESHOLD
+            - MARGIN_BELOW_FLOOR
+            - ZERO_REVENUE_WITH_COST
+        level:
+          enum:
+            - SALES_MANAGER
+            - FINANCE
+        segment:
+          type:
+            - string
+            - 'null'
+          enum:
+            - ONE_TIME
+            - RECURRING
+            - null
+        observedBps:
+          type:
+            - integer
+            - 'null'
+        thresholdBps:
+          type: integer
+        message:
+          type: string
+    PricingBreakdown:
+      type: object
+      properties:
+        currency:
+          type: string
+        priceBookId:
+          type: string
+        pricingDate: *id008
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/PricedLine'
+        oneTime:
+          $ref: '#/components/schemas/SegmentTotals'
+        recurringMonthly:
+          $ref: '#/components/schemas/SegmentTotals'
+        maxManualDiscountBps:
+          type: integer
+        approval:
+          type: object
+          properties:
+            required:
+              type: boolean
+            reasons:
+              type: array
+              items:
+                $ref: '#/components/schemas/ApprovalReason'
+      description: Output of the shared priceQuote() engine plus the approval policy evaluation
+    QuoteStatus:
+      type: string
+      enum:
+        - DRAFT
+        - SUBMITTED_FOR_APPROVAL
+        - APPROVED
+        - SENT
+        - ACCEPTED
+        - REJECTED
+        - EXPIRED
+        - WITHDRAWN
+    QuoteFamily:
+      type: object
+      properties:
+        id: *id006
+        quoteCode:
+          type: string
+        customerId: *id006
+        ownerId: *id006
+        currentVersion:
+          type: integer
+        createdAt: *id007
+    QuoteVersion:
+      type: object
+      properties:
+        id: *id006
+        familyId: *id006
+        quoteCode:
+          type: string
+        versionNumber:
+          type: integer
+          minimum: 1
+        status:
+          $ref: '#/components/schemas/QuoteStatus'
+        currency:
+          type: string
+        priceBookId: *id006
+        customerContactId: *id006
+        validUntil: *id008
+        termsText:
+          type: string
+        submittedAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        approvedAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        oneTimeSubtotalMinor:
+          type: integer
+        recurringMonthlySubtotalMinor:
+          type: integer
+        breakdown:
+          $ref: '#/components/schemas/PricingBreakdown'
+        optimisticVersion:
+          type: integer
+    ApprovalStep:
+      type: object
+      properties:
+        id: *id006
+        quoteVersionId: *id006
+        sequence:
+          type: integer
+        approvalRole:
+          enum:
+            - SALES_MANAGER
+            - FINANCE_APPROVER
+        status:
+          enum:
+            - PENDING
+            - APPROVED
+            - REJECTED
+            - CHANGES_REQUESTED
+            - SUPERSEDED
+        assignedUserId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        decidedBy:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        decidedAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        rationale:
+          type:
+            - string
+            - 'null'
+        reasons:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApprovalReason'
+    ApprovalDecisionRequest:
+      type: object
+      properties:
+        decision:
+          enum:
+            - APPROVE
+            - REJECT
+            - REQUEST_CHANGES
+        rationale:
+          type: string
+          maxLength: 2000
+        expectedOptimisticVersion:
+          type: integer
+      required:
+        - decision
+        - expectedOptimisticVersion
+    CustomerGrant:
+      type: object
+      properties:
+        id: *id006
+        quoteVersionId: *id006
+        customerContactId: *id006
+        grantedAt: *id007
+        revokedAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+    CustomerQuoteLine:
+      type: object
+      properties:
+        description:
+          type: string
+        options:
+          type: array
+          items:
+            type: string
+        quantity:
+          type: integer
+        priceType:
+          $ref: '#/components/schemas/ProductType'
+        billingTermMonths:
+          type:
+            - integer
+            - 'null'
+        unitPriceMinor:
+          type: integer
+        netMinor:
+          type: integer
+      additionalProperties: false
+    CustomerQuote:
+      type: object
+      properties:
+        id: *id006
+        quoteCode:
+          type: string
+        versionNumber:
+          type: integer
+        sellerName:
+          type: string
+        currency:
+          type: string
+        validUntil: *id008
+        termsText:
+          type: string
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/CustomerQuoteLine'
+        oneTimeTotalMinor:
+          type: integer
+        recurringMonthlyTotalMinor:
+          type: integer
+        taxEstimateMinor:
+          type:
+            - integer
+            - 'null'
+          description: Illustrative estimate, not tax advice
+        acknowledgment:
+          type:
+            - object
+            - 'null'
+          properties:
+            outcome:
+              enum:
+                - ACCEPTED
+                - REJECTED
+            decidedAt: *id007
+      additionalProperties: false
+      description: 'Redacted customer DTO: never contains cost, margin, approval notes or audit data'
+    Customer:
+      type: object
+      properties:
+        id: *id006
+        name:
+          type: string
+        tier:
+          type:
+            - string
+            - 'null'
+        billingAddressText:
+          type: string
+        status:
+          enum:
+            - ACTIVE
+            - INACTIVE
+    CustomerContact:
+      type: object
+      properties:
+        id: *id006
+        customerId: *id006
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        status:
+          enum:
+            - ACTIVE
+            - INACTIVE
+    Dashboard:
+      type: object
+      properties:
+        draftValueMinor:
+          type: integer
+        pendingApprovals:
+          type: integer
+        approvedCount:
+          type: integer
+        acceptedCount:
+          type: integer
+        discountExceptionRateBps:
+          type:
+            - integer
+            - 'null'
+        averageApprovedMarginBps:
+          type:
+            - integer
+            - 'null'
+        expiringSoon:
+          type: integer
+      description: Quoted figures only; no realized revenue exists in the MVP
+    Notification:
+      type: object
+      properties:
+        id: *id006
+        eventType:
+          type: string
+        readAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        createdAt: *id007
+    AuditEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+        actorUserId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        action:
+          type: string
+        entityType:
+          type: string
+        entityId:
+          type:
+            - string
+            - 'null'
+        metadata:
+          type: object
+        requestId:
+          type:
+            - string
+            - 'null'
+        occurredAt: *id007
+    OrganizationSettings:
+      type: object
+      properties:
+        currencyCode:
+          type: string
+        timezone:
+          type: string
+        defaultQuoteExpiryDays:
+          type: integer
+          minimum: 1
+        defaultTaxBps:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: Illustrative tax rate (basis points)
+        marginFloorBps:
+          type: integer
+          minimum: -10000
+          maximum: 10000
+        managerDiscountThresholdBps:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: Manager approval threshold (basis points)
+        maxManualDiscountBps:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: Manual discount cap (basis points)
+  responses:
+    Unauthenticated:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            data: null
+            error:
+              code: UNAUTHENTICATED
+              message: Authentication required
+    Forbidden:
+      description: Forbidden (missing permission or CSRF failure)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            data: null
+            error:
+              code: FORBIDDEN
+              message: Forbidden (missing permission or CSRF failure)
+    CsrfFailed:
+      description: Cross-origin request rejected
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            data: null
+            error:
+              code: CSRF_FAILED
+              message: Cross-origin request rejected
+    NotFound:
+      description: Resource not found (also returned for other tenants' ids)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            data: null
+            error:
+              code: NOT_FOUND
+              message: Resource not found (also returned for other tenants' ids)
+    Conflict:
+      description: Conflict (duplicate key, stale version or invalid state transition)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            data: null
+            error:
+              code: CONFLICT
+              message: Conflict (duplicate key, stale version or invalid state transition)
+    ValidationFailed:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            data: null
+            error:
+              code: VALIDATION_FAILED
+              message: Request validation failed
+    RateLimited:
+      description: Too many requests
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            data: null
+            error:
+              code: RATE_LIMITED
+              message: Too many requests
+    ServiceUnavailable:
+      description: Database unavailable
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            data: null
+            error:
+              code: SERVICE_UNAVAILABLE
+              message: Database unavailable
+    NotImplemented:
+      description: Endpoint registered but not built yet; details.ticket names the backlog item
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            data: null
+            error:
+              code: NOT_IMPLEMENTED
+              message: Not implemented yet (tracked as DF-032)
+              details:
+                ticket: DF-032

@@ -1,0 +1,1083 @@
+{
+  "project": "dealforge",
+  "ticketPrefix": "DF",
+  "milestones": [
+    {
+      "id": "M0",
+      "title": "M0: Foundation",
+      "description": "Monorepo, launcher, auth, tenancy, audit, roles, docs and development seed."
+    },
+    {
+      "id": "M1",
+      "title": "M1: Catalog and configuration",
+      "description": "Products, CSV import, configurable options, incompatibilities and bundles (FR-01, FR-03, FR-04)."
+    },
+    {
+      "id": "M2",
+      "title": "M2: Pricing",
+      "description": "Money primitives, pricing engine, approval policy, price books and pricing rules (FR-02, FR-05, FR-07)."
+    },
+    {
+      "id": "M3",
+      "title": "M3: Customers and quotes",
+      "description": "Customer directory, quote families, immutable versions, server-side calculation and lifecycle (FR-06, FR-07)."
+    },
+    {
+      "id": "M4",
+      "title": "M4: Approvals",
+      "description": "Sequential approval steps, decisions with optimistic locking, inbox and decision screens (FR-08)."
+    },
+    {
+      "id": "M5",
+      "title": "M5: Proposal and customer portal",
+      "description": "Printable proposal, explicit customer grants and acknowledgment (FR-09)."
+    },
+    {
+      "id": "M6",
+      "title": "M6: Reporting, notifications and audit",
+      "description": "Dashboard, reports, CSV export, notifications, expiry job and audit timeline (FR-10)."
+    },
+    {
+      "id": "M7",
+      "title": "M7: Acceptance and release",
+      "description": "PRD section 9 Playwright acceptance suite, accessibility, branding uploads and deployment packaging."
+    }
+  ],
+  "tickets": [
+    {
+      "id": "DF-001",
+      "title": "Bootstrap monorepo, run.sh launcher and CI pipeline",
+      "milestone": "M0",
+      "prdRefs": ["§2"],
+      "adrRefs": ["ADR-0001", "ADR-0002", "ADR-0009"],
+      "estimateHours": 4,
+      "status": "done",
+      "dependsOn": [],
+      "labels": ["devops"],
+      "description": "Create the npm-workspaces monorepo (api, web, shared), the single run.sh entry point and the GitHub Actions pipeline. A fresh clone must reach a running app with one command.",
+      "acceptanceCriteria": [
+        "./run.sh on a fresh clone installs deps, creates .env and the database, migrates, seeds and starts API and web",
+        "./run.sh check runs lint, format check, typecheck, unit and integration tests",
+        "CI runs the same gates plus a gitleaks secret scan"
+      ]
+    },
+    {
+      "id": "DF-002",
+      "title": "Implement session authentication with scrypt, CSRF and rate limiting",
+      "milestone": "M0",
+      "prdRefs": ["§2"],
+      "adrRefs": ["ADR-0005", "ADR-0006"],
+      "estimateHours": 4,
+      "status": "done",
+      "dependsOn": ["DF-001"],
+      "labels": ["backend", "security"],
+      "description": "Local email/password login with scrypt hashes, server-side sessions in HTTP-only SameSite cookies, HMAC CSRF tokens and login rate limiting.",
+      "acceptanceCriteria": [
+        "Passwords are stored only as scrypt hashes",
+        "Unsafe requests without a valid X-CSRF-Token are rejected with 403",
+        "Login is rate limited and failures return a generic 401"
+      ]
+    },
+    {
+      "id": "DF-003",
+      "title": "Add migration runner, append-only audit table and health checks",
+      "milestone": "M0",
+      "prdRefs": ["§2", "FR-10"],
+      "adrRefs": ["ADR-0004", "ADR-0008"],
+      "estimateHours": 3,
+      "status": "done",
+      "dependsOn": ["DF-001"],
+      "labels": ["backend", "database"],
+      "description": "Forward-only SQL migrations with checksums, the audit_events table and liveness/readiness endpoints.",
+      "acceptanceCriteria": [
+        "Editing an applied migration fails the run",
+        "GET /api/health/ready returns 503 when the database is unreachable",
+        "Audit rows are written through a single helper that accepts a transaction"
+      ]
+    },
+    {
+      "id": "DF-004",
+      "title": "Define DealForge role model, permission matrix and role CHECK migration",
+      "milestone": "M0",
+      "prdRefs": ["§3"],
+      "adrRefs": ["ADR-0007"],
+      "estimateHours": 2,
+      "status": "done",
+      "dependsOn": ["DF-003"],
+      "labels": ["backend", "security", "database"],
+      "description": "Replace the placeholder foundation roles with the six PRD actors, add a shared permission matrix used by API guards and web navigation, and constrain users.role in migration 0002.",
+      "acceptanceCriteria": [
+        "ROLES lists exactly the six PRD actors",
+        "users.role rejects values outside the actor model",
+        "API routes declare permissions resolved through the shared matrix"
+      ]
+    },
+    {
+      "id": "DF-005",
+      "title": "Write engineering documentation set and ADRs",
+      "milestone": "M0",
+      "prdRefs": ["§11"],
+      "adrRefs": ["ADR-0001"],
+      "estimateHours": 4,
+      "status": "done",
+      "dependsOn": [],
+      "labels": ["docs"],
+      "description": "Architecture, design, data model, OpenAPI contract, threat model, test strategy, operations, planning documents and ADRs 0001-0018.",
+      "acceptanceCriteria": [
+        "docs/README.md indexes every document",
+        "OpenAPI lists every PRD section 7 endpoint with x-status and x-ticket",
+        "Backlog markdown and JSON agree"
+      ]
+    },
+    {
+      "id": "DF-006",
+      "title": "Seed development organizations, demo users per role and sample products",
+      "milestone": "M0",
+      "prdRefs": ["§8"],
+      "adrRefs": ["ADR-0003"],
+      "estimateHours": 2,
+      "status": "done",
+      "dependsOn": ["DF-004"],
+      "labels": ["database"],
+      "description": "Idempotent development-only seed: Helix Managed Services with one user per role, Corvid Industrial Supply as the unrelated tenant, and a few products in each.",
+      "acceptanceCriteria": [
+        "Seed refuses to run with NODE_ENV=production",
+        "Running the seed twice produces no duplicates",
+        "Every demo login is documented in README"
+      ]
+    },
+    {
+      "id": "DF-007",
+      "title": "Load the full PRD section 8 demonstration dataset",
+      "milestone": "M0",
+      "prdRefs": ["§8"],
+      "adrRefs": ["ADR-0003"],
+      "estimateHours": 5,
+      "status": "pending",
+      "dependsOn": ["DF-019", "DF-024", "DF-026", "DF-030", "DF-032", "DF-042"],
+      "labels": ["database"],
+      "description": "Extend the seed with 100 catalog items, 8 configurable products, 4 bundles, 2 published price books, 8 pricing rules, 40 customers and 60 quotes across states with approval history.",
+      "acceptanceCriteria": [
+        "Counts match PRD section 8",
+        "Atlas Manufacturing exists as a GOLD-tier customer for the golden scenario",
+        "./run.sh reset --yes reloads the dataset deterministically"
+      ]
+    },
+    {
+      "id": "DF-008",
+      "title": "Support multi-role memberships and organization selection at login",
+      "milestone": "M0",
+      "prdRefs": ["§3", "§4.1"],
+      "adrRefs": ["ADR-0003", "ADR-0007"],
+      "estimateHours": 5,
+      "status": "pending",
+      "dependsOn": ["DF-004"],
+      "labels": ["backend", "frontend", "security"],
+      "description": "Introduce sales_memberships so a user can hold several roles per tenant, and let users with several memberships pick an organization at login.",
+      "acceptanceCriteria": [
+        "A user with SALES_REP and PRICING_MANAGER passes guards for both",
+        "Session is bound to exactly one organization",
+        "GET /api/v1/auth/organizations lists only the caller's memberships"
+      ]
+    },
+    {
+      "id": "DF-009",
+      "title": "Build user administration API and screen",
+      "milestone": "M0",
+      "prdRefs": ["§3", "§4.20"],
+      "adrRefs": ["ADR-0007", "ADR-0008"],
+      "estimateHours": 4,
+      "status": "pending",
+      "dependsOn": ["DF-008"],
+      "labels": ["backend", "frontend"],
+      "description": "Sales admins invite, deactivate and change roles of users in their organization.",
+      "acceptanceCriteria": [
+        "Only SALES_ADMIN can call /api/v1/users endpoints",
+        "Deactivated users lose active sessions",
+        "Role changes are audited"
+      ]
+    },
+    {
+      "id": "DF-010",
+      "title": "Build organization pricing settings API and screen",
+      "milestone": "M0",
+      "prdRefs": ["FR-01", "§4.20"],
+      "adrRefs": ["ADR-0013", "ADR-0017"],
+      "estimateHours": 4,
+      "status": "pending",
+      "dependsOn": ["DF-004"],
+      "labels": ["backend", "frontend"],
+      "description": "Currency, timezone, default quote expiry, illustrative tax rate, margin floor, manager discount threshold and maximum manual discount per organization.",
+      "acceptanceCriteria": [
+        "Settings are validated as integer bps and ISO 4217 codes",
+        "Changes are audited with before/after values",
+        "Approval evaluation reads thresholds from these settings"
+      ]
+    },
+    {
+      "id": "DF-011",
+      "title": "Implement products catalog list, create and get API",
+      "milestone": "M1",
+      "prdRefs": ["FR-01"],
+      "adrRefs": ["ADR-0003", "ADR-0006", "ADR-0007", "ADR-0008", "ADR-0013"],
+      "estimateHours": 4,
+      "status": "done",
+      "dependsOn": ["DF-004"],
+      "labels": ["backend", "database"],
+      "description": "Tenant-scoped, role-gated, validated, audited and paginated catalog endpoints with integer minor-unit prices and a unique SKU per organization.",
+      "acceptanceCriteria": [
+        "GET /api/v1/products paginates and is scoped to the session organization",
+        "POST requires catalog:write, returns 201 and writes product.created in the same transaction",
+        "Duplicate SKU in the same organization returns 409",
+        "Another tenant's product id returns 404"
+      ]
+    },
+    {
+      "id": "DF-012",
+      "title": "Build product catalog list and create screen",
+      "milestone": "M1",
+      "prdRefs": ["FR-01", "§4.3"],
+      "adrRefs": ["ADR-0013"],
+      "estimateHours": 3,
+      "status": "done",
+      "dependsOn": ["DF-011"],
+      "labels": ["frontend", "ux"],
+      "description": "Catalog table with formatted money and list margin, pagination and a create form for admins and pricing managers.",
+      "acceptanceCriteria": [
+        "Decimal input is converted to minor units without floating point",
+        "Sales reps see the list without the create form",
+        "Server validation and conflict messages are shown to the user"
+      ]
+    },
+    {
+      "id": "DF-013",
+      "title": "Edit and archive products with immutable quote snapshots",
+      "milestone": "M1",
+      "prdRefs": ["FR-01", "D-17"],
+      "adrRefs": ["ADR-0008", "ADR-0016"],
+      "estimateHours": 3,
+      "status": "pending",
+      "dependsOn": ["DF-011"],
+      "labels": ["backend", "frontend"],
+      "description": "PATCH and archive endpoints plus the product editor screen. Archived products remain readable for historical quotes.",
+      "acceptanceCriteria": [
+        "Archiving sets active=false and is audited",
+        "Historical quote lines keep their snapshot after edit or archive",
+        "Optimistic concurrency rejects stale edits with 409"
+      ]
+    },
+    {
+      "id": "DF-014",
+      "title": "Add catalog search and status/category filters",
+      "milestone": "M1",
+      "prdRefs": ["FR-01", "§4.3"],
+      "adrRefs": ["ADR-0006"],
+      "estimateHours": 2,
+      "status": "pending",
+      "dependsOn": ["DF-011"],
+      "labels": ["backend", "frontend"],
+      "description": "Free-text search on SKU and name plus status and category filters on the catalog list.",
+      "acceptanceCriteria": [
+        "Filters are applied in SQL with indexes",
+        "Filter state is reflected in the URL",
+        "Pagination totals reflect the filtered set"
+      ]
+    },
+    {
+      "id": "DF-015",
+      "title": "Import products from CSV with preview, errors and SKU conflict handling",
+      "milestone": "M1",
+      "prdRefs": ["FR-01"],
+      "adrRefs": ["ADR-0006", "ADR-0008"],
+      "estimateHours": 5,
+      "status": "pending",
+      "dependsOn": ["DF-011"],
+      "labels": ["backend", "frontend"],
+      "description": "Upload a CSV, preview parsed rows with per-row validation errors, choose skip or update on SKU conflicts and commit in one transaction.",
+      "acceptanceCriteria": [
+        "Preview never writes to the database",
+        "Commit is all-or-nothing and audited with row counts",
+        "Decimal prices are parsed with parseDecimalToMinor"
+      ]
+    },
+    {
+      "id": "DF-016",
+      "title": "Build option groups and product options API",
+      "milestone": "M1",
+      "prdRefs": ["FR-03"],
+      "adrRefs": ["ADR-0003", "ADR-0006"],
+      "estimateHours": 4,
+      "status": "pending",
+      "dependsOn": ["DF-011"],
+      "labels": ["backend", "database"],
+      "description": "Option groups with required flag and min/max selections; options with price and cost deltas.",
+      "acceptanceCriteria": [
+        "Deltas are integer minor units",
+        "min_selections <= max_selections is enforced",
+        "Endpoints are tenant-scoped and require catalog:write for changes"
+      ]
+    },
+    {
+      "id": "DF-017",
+      "title": "Implement option incompatibility rules and configuration validator",
+      "milestone": "M1",
+      "prdRefs": ["FR-03", "D-02", "D-03"],
+      "adrRefs": ["ADR-0015"],
+      "estimateHours": 4,
+      "status": "pending",
+      "dependsOn": ["DF-016"],
+      "labels": ["backend"],
+      "description": "Pure domain validator for required groups, one-of selections, quantity bounds and mutually incompatible option pairs, used by quote calculation.",
+      "acceptanceCriteria": [
+        "Missing required option is rejected with 422 and a clear reason",
+        "Incompatible pair is rejected naming both options",
+        "Validator has 100% branch coverage"
+      ]
+    },
+    {
+      "id": "DF-018",
+      "title": "Build product option and compatibility editor screen",
+      "milestone": "M1",
+      "prdRefs": ["FR-03", "§4.5"],
+      "adrRefs": [],
+      "estimateHours": 4,
+      "status": "pending",
+      "dependsOn": ["DF-016", "DF-017"],
+      "labels": ["frontend", "ux"],
+      "description": "Editor for option groups, options and incompatible pairs on a configurable product.",
+      "acceptanceCriteria": [
+        "Validation errors from the API are shown inline",
+        "Only catalog:write roles can open the editor",
+        "Keyboard accessible"
+      ]
+    },
+    {
+      "id": "DF-019",
+      "title": "Build bundles API with one-level components and bundle discount",
+      "milestone": "M1",
+      "prdRefs": ["FR-04"],
+      "adrRefs": ["ADR-0015"],
+      "estimateHours": 5,
+      "status": "pending",
+      "dependsOn": ["DF-016"],
+      "labels": ["backend", "database"],
+      "description": "Bundles with mandatory/optional components, quantity rules and an explicit bundle discount; nesting limited to one level; edits create a new bundle version.",
+      "acceptanceCriteria": [
+        "Nesting a bundle inside a bundle is rejected",
+        "Editing a bundle never changes existing quote revisions",
+        "Bundle discount is expressed as a BUNDLE pricing rule"
+      ]
+    },
+    {
+      "id": "DF-020",
+      "title": "Build bundle builder and bundle detail screens",
+      "milestone": "M1",
+      "prdRefs": ["FR-04", "§4.6"],
+      "adrRefs": [],
+      "estimateHours": 4,
+      "status": "pending",
+      "dependsOn": ["DF-019"],
+      "labels": ["frontend", "ux"],
+      "description": "Builder for bundle components and a detail page with per-component pricing.",
+      "acceptanceCriteria": [
+        "Per-component and consolidated totals are shown",
+        "Optional components can be toggled",
+        "Screen is responsive"
+      ]
+    },
+    {
+      "id": "DF-021",
+      "title": "Implement money module with integer minor units and basis points",
+      "milestone": "M2",
+      "prdRefs": ["§2", "FR-07"],
+      "adrRefs": ["ADR-0013"],
+      "estimateHours": 3,
+      "status": "done",
+      "dependsOn": [],
+      "labels": ["backend", "testing"],
+      "description": "Overflow-guarded integer arithmetic, BigInt-backed percentage and ratio math with a documented half-away-from-zero rounding rule, and exact display formatting and parsing.",
+      "acceptanceCriteria": [
+        "No floating point arithmetic is used for amounts",
+        "Rounding boundaries are unit tested",
+        "Module has 100% branch coverage"
+      ]
+    },
+    {
+      "id": "DF-022",
+      "title": "Implement pricing engine with rule selection, stacking, caps and margin",
+      "milestone": "M2",
+      "prdRefs": ["FR-05", "FR-07", "D-05"],
+      "adrRefs": ["ADR-0013", "ADR-0015"],
+      "estimateHours": 5,
+      "status": "done",
+      "dependsOn": ["DF-021"],
+      "labels": ["backend", "testing"],
+      "description": "Pure priceQuote(): effective-date and condition eligibility, one rule per category by priority with deterministic tie-break, manual discount last and capped, step-by-step breakdown, separate one-time and recurring totals and gross margin with null for zero revenue.",
+      "acceptanceCriteria": [
+        "Golden scenario totals match reference integer arithmetic",
+        "Only one rule per category is applied",
+        "Zero revenue yields a null margin",
+        "Engine has 100% branch coverage"
+      ]
+    },
+    {
+      "id": "DF-023",
+      "title": "Implement approval policy evaluator",
+      "milestone": "M2",
+      "prdRefs": ["FR-08", "D-07", "D-08"],
+      "adrRefs": ["ADR-0017"],
+      "estimateHours": 2,
+      "status": "done",
+      "dependsOn": ["DF-022"],
+      "labels": ["backend", "testing"],
+      "description": "Pure evaluator returning the ordered approval steps (sales manager, finance) with reasons from manual discount and margin thresholds.",
+      "acceptanceCriteria": [
+        "Discount above threshold requires SALES_MANAGER",
+        "Margin below floor or cost with zero revenue requires FINANCE",
+        "Both triggers produce manager then finance"
+      ]
+    },
+    {
+      "id": "DF-024",
+      "title": "Build price books API with draft/publish, versions and effective windows",
+      "milestone": "M2",
+      "prdRefs": ["FR-02"],
+      "adrRefs": ["ADR-0014"],
+      "estimateHours": 5,
+      "status": "pending",
+      "dependsOn": ["DF-011"],
+      "labels": ["backend", "database"],
+      "description": "Price books with per-product list and cost prices, draft and published states, immutable published versions and overlap checks on active windows.",
+      "acceptanceCriteria": [
+        "Published price books cannot be edited",
+        "Overlapping active windows for the same segment are rejected",
+        "Archived products keep their price-book lines"
+      ]
+    },
+    {
+      "id": "DF-025",
+      "title": "Build price-book editor screen",
+      "milestone": "M2",
+      "prdRefs": ["FR-02", "§4.7"],
+      "adrRefs": ["ADR-0014"],
+      "estimateHours": 4,
+      "status": "pending",
+      "dependsOn": ["DF-024"],
+      "labels": ["frontend", "ux"],
+      "description": "Editor for price-book lines, validity dates and publishing.",
+      "acceptanceCriteria": [
+        "Publishing requires confirmation and shows the version",
+        "Read-only view for published books",
+        "Money input uses shared parsing"
+      ]
+    },
+    {
+      "id": "DF-026",
+      "title": "Build pricing rules API with declarative schema validation",
+      "milestone": "M2",
+      "prdRefs": ["FR-05"],
+      "adrRefs": ["ADR-0015"],
+      "estimateHours": 4,
+      "status": "pending",
+      "dependsOn": ["DF-024"],
+      "labels": ["backend"],
+      "description": "CRUD for rules tied to a price book, validated with ruleIssues() and stored as data snapshots.",
+      "acceptanceCriteria": [
+        "Invalid rules return 422 with field paths",
+        "Rules of a published price book are immutable",
+        "Changes are audited"
+      ]
+    },
+    {
+      "id": "DF-027",
+      "title": "Build discount and price-rule policy editor screen",
+      "milestone": "M2",
+      "prdRefs": ["FR-05", "§4.8"],
+      "adrRefs": ["ADR-0015"],
+      "estimateHours": 3,
+      "status": "pending",
+      "dependsOn": ["DF-026"],
+      "labels": ["frontend", "ux"],
+      "description": "Editor for rule category, conditions, priority, dates, action and cap.",
+      "acceptanceCriteria": [
+        "Only the restricted condition fields are offered",
+        "Server validation errors shown inline",
+        "Priority conflicts are explained"
+      ]
+    },
+    {
+      "id": "DF-028",
+      "title": "Add pricing simulation endpoint",
+      "milestone": "M2",
+      "prdRefs": ["FR-05"],
+      "adrRefs": ["ADR-0015"],
+      "estimateHours": 2,
+      "status": "pending",
+      "dependsOn": ["DF-024", "DF-026"],
+      "labels": ["backend"],
+      "description": "POST /api/v1/pricing/simulate runs priceQuote on a draft line set against a published price book without persisting anything.",
+      "acceptanceCriteria": [
+        "Response contains the full step breakdown",
+        "Uses the server date, never client time",
+        "Nothing is written to the database"
+      ]
+    },
+    {
+      "id": "DF-029",
+      "title": "Add configured-option adjustments and illustrative tax estimate to calculation",
+      "milestone": "M2",
+      "prdRefs": ["FR-03", "FR-07"],
+      "adrRefs": ["ADR-0013"],
+      "estimateHours": 3,
+      "status": "pending",
+      "dependsOn": ["DF-017", "DF-022"],
+      "labels": ["backend"],
+      "description": "Feed validated option deltas into the engine and add an illustrative tax estimate excluded from margin and labelled as not tax advice.",
+      "acceptanceCriteria": [
+        "Tax uses the organization bps rate with the documented rounding rule",
+        "Tax never changes gross margin",
+        "Tax amounts are labelled as estimates"
+      ]
+    },
+    {
+      "id": "DF-030",
+      "title": "Build customers and contacts API",
+      "milestone": "M3",
+      "prdRefs": ["§4.9"],
+      "adrRefs": ["ADR-0003"],
+      "estimateHours": 4,
+      "status": "pending",
+      "dependsOn": ["DF-004"],
+      "labels": ["backend", "database"],
+      "description": "Customer accounts with tier and status, and contacts per customer.",
+      "acceptanceCriteria": [
+        "Tier feeds CUSTOMER_TIER rule eligibility",
+        "Tenant-scoped with 404 across tenants",
+        "Changes are audited"
+      ]
+    },
+    {
+      "id": "DF-031",
+      "title": "Build customer and contact directory screen",
+      "milestone": "M3",
+      "prdRefs": ["§4.9"],
+      "adrRefs": [],
+      "estimateHours": 3,
+      "status": "pending",
+      "dependsOn": ["DF-030"],
+      "labels": ["frontend", "ux"],
+      "description": "List, search and edit customers and their contacts.",
+      "acceptanceCriteria": ["Search by name", "Tier and status visible", "Responsive table"]
+    },
+    {
+      "id": "DF-032",
+      "title": "Build quote families, code allocator, versions schema and create API",
+      "milestone": "M3",
+      "prdRefs": ["FR-06", "D-01"],
+      "adrRefs": ["ADR-0016"],
+      "estimateHours": 5,
+      "status": "pending",
+      "dependsOn": ["DF-024", "DF-030"],
+      "labels": ["backend", "database"],
+      "description": "quote_families and quote_versions tables, a transactional quote-code allocator and list/create/get endpoints with owner-based visibility.",
+      "acceptanceCriteria": [
+        "Quote code is unique per organization and allocated without gaps under concurrency",
+        "(family_id, version_number) is unique",
+        "Reps see only their own drafts; managers see their team"
+      ]
+    },
+    {
+      "id": "DF-033",
+      "title": "Build quote list screen",
+      "milestone": "M3",
+      "prdRefs": ["FR-06", "§4.10"],
+      "adrRefs": [],
+      "estimateHours": 3,
+      "status": "pending",
+      "dependsOn": ["DF-032"],
+      "labels": ["frontend", "ux"],
+      "description": "List with owner, stage, expiry, totals and approval status.",
+      "acceptanceCriteria": [
+        "Status badges for low margin, high discount and expired",
+        "Filters by status and owner",
+        "Paginated"
+      ]
+    },
+    {
+      "id": "DF-034",
+      "title": "Build new-quote wizard screen",
+      "milestone": "M3",
+      "prdRefs": ["FR-06", "§4.11"],
+      "adrRefs": ["ADR-0014"],
+      "estimateHours": 3,
+      "status": "pending",
+      "dependsOn": ["DF-032"],
+      "labels": ["frontend", "ux"],
+      "description": "Customer, contact, currency, price book and validity selection.",
+      "acceptanceCriteria": [
+        "Only published price books matching the currency are offered",
+        "Validity defaults from organization settings",
+        "Creates version 1 in DRAFT"
+      ]
+    },
+    {
+      "id": "DF-035",
+      "title": "Persist quote lines and server-side calculate endpoint",
+      "milestone": "M3",
+      "prdRefs": ["FR-07", "D-05", "D-06"],
+      "adrRefs": ["ADR-0013", "ADR-0015", "ADR-0016"],
+      "estimateHours": 5,
+      "status": "pending",
+      "dependsOn": ["DF-022", "DF-029", "DF-032"],
+      "labels": ["backend"],
+      "description": "PATCH lines on a draft version and recalculate with priceQuote from price-book and rule snapshots; client totals are ignored.",
+      "acceptanceCriteria": [
+        "Tampered client totals are ignored and recomputed",
+        "Line snapshots store unit list and cost",
+        "Calculation snapshot JSON is stored on the version"
+      ]
+    },
+    {
+      "id": "DF-036",
+      "title": "Build quote builder screen",
+      "milestone": "M3",
+      "prdRefs": ["FR-07", "§4.12"],
+      "adrRefs": [],
+      "estimateHours": 6,
+      "status": "pending",
+      "dependsOn": ["DF-035"],
+      "labels": ["frontend", "ux"],
+      "description": "Line items, configuration, quantities, manual discounts, step-by-step breakdown and separate one-time and recurring summaries.",
+      "acceptanceCriteria": [
+        "Breakdown shows each pricing step",
+        "Recurring amounts labelled per month with term",
+        "Warnings for low margin and high discount"
+      ]
+    },
+    {
+      "id": "DF-037",
+      "title": "Implement quote state machine and server-clock expiry",
+      "milestone": "M3",
+      "prdRefs": ["FR-06", "D-15"],
+      "adrRefs": ["ADR-0016"],
+      "estimateHours": 4,
+      "status": "pending",
+      "dependsOn": ["DF-032"],
+      "labels": ["backend"],
+      "description": "Enforce DRAFT to SUBMITTED_FOR_APPROVAL to APPROVED to SENT to ACCEPTED/REJECTED/EXPIRED plus WITHDRAWN with reason, using the server clock.",
+      "acceptanceCriteria": [
+        "Invalid transitions return 409 INVALID_STATE_TRANSITION",
+        "Expiry uses server time only",
+        "Every transition is audited"
+      ]
+    },
+    {
+      "id": "DF-038",
+      "title": "Clone revisions and reprice into a new version with diff",
+      "milestone": "M3",
+      "prdRefs": ["FR-02", "FR-06", "D-10"],
+      "adrRefs": ["ADR-0014", "ADR-0016"],
+      "estimateHours": 4,
+      "status": "pending",
+      "dependsOn": ["DF-035", "DF-037"],
+      "labels": ["backend"],
+      "description": "Clone a version into a new editable draft and reprice against a newer price book, recording before/after differences.",
+      "acceptanceCriteria": [
+        "Source version is unchanged",
+        "Approvals are never carried to the new version",
+        "Diff lists changed lines and totals"
+      ]
+    },
+    {
+      "id": "DF-039",
+      "title": "Build quote revision compare page",
+      "milestone": "M3",
+      "prdRefs": ["FR-06", "§4.13"],
+      "adrRefs": ["ADR-0016"],
+      "estimateHours": 3,
+      "status": "pending",
+      "dependsOn": ["DF-038"],
+      "labels": ["frontend", "ux"],
+      "description": "Side-by-side comparison of two versions of a quote family.",
+      "acceptanceCriteria": [
+        "Shows line, discount and total differences",
+        "Highlights approval status per version",
+        "Accessible table semantics"
+      ]
+    },
+    {
+      "id": "DF-040",
+      "title": "Add bundle lines to quotes with component breakdown",
+      "milestone": "M3",
+      "prdRefs": ["FR-04", "D-04"],
+      "adrRefs": ["ADR-0015"],
+      "estimateHours": 3,
+      "status": "pending",
+      "dependsOn": ["DF-019", "DF-035"],
+      "labels": ["backend"],
+      "description": "Expand a bundle into component lines tagged with the bundle code so BUNDLE rules apply and per-component prices and costs remain visible.",
+      "acceptanceCriteria": [
+        "Component prices and costs are exact",
+        "Changing bundle quantity rescales components",
+        "Bundle discount applies only to bundle lines"
+      ]
+    },
+    {
+      "id": "DF-041",
+      "title": "Submit for approval and create sequential approval steps",
+      "milestone": "M4",
+      "prdRefs": ["FR-08", "D-07", "D-08"],
+      "adrRefs": ["ADR-0017"],
+      "estimateHours": 4,
+      "status": "pending",
+      "dependsOn": ["DF-023", "DF-035", "DF-037"],
+      "labels": ["backend"],
+      "description": "On submit, recalculate, freeze the version and create approval_steps from evaluateApprovalPolicy in one transaction; standard quotes self-approve.",
+      "acceptanceCriteria": [
+        "Quotes above thresholds cannot be sent before approval",
+        "Steps are created in manager then finance order",
+        "Submission is audited and notifies approvers"
+      ]
+    },
+    {
+      "id": "DF-042",
+      "title": "Record approval decisions with idempotency, optimistic locking and no self-approval",
+      "milestone": "M4",
+      "prdRefs": ["FR-08", "D-09", "D-11"],
+      "adrRefs": ["ADR-0017"],
+      "estimateHours": 5,
+      "status": "pending",
+      "dependsOn": ["DF-041"],
+      "labels": ["backend", "security"],
+      "description": "Approve, reject or request changes on the current step; reject owner self-approval, stale versions and duplicate decisions.",
+      "acceptanceCriteria": [
+        "Owner approval attempt returns 403",
+        "Decision on a superseded version returns 409",
+        "Replaying the same decision is idempotent"
+      ]
+    },
+    {
+      "id": "DF-043",
+      "title": "Build approval inbox screen",
+      "milestone": "M4",
+      "prdRefs": ["FR-08", "§4.14"],
+      "adrRefs": [],
+      "estimateHours": 3,
+      "status": "pending",
+      "dependsOn": ["DF-041"],
+      "labels": ["frontend", "ux"],
+      "description": "Pending steps for the caller's role with margin and exception explanations.",
+      "acceptanceCriteria": [
+        "Shows reasons produced by the policy evaluator",
+        "Sorted by age",
+        "Only approvals:read roles see it"
+      ]
+    },
+    {
+      "id": "DF-044",
+      "title": "Build approver decision detail screen",
+      "milestone": "M4",
+      "prdRefs": ["FR-08", "§4.15"],
+      "adrRefs": [],
+      "estimateHours": 3,
+      "status": "pending",
+      "dependsOn": ["DF-042"],
+      "labels": ["frontend", "ux"],
+      "description": "Decision view with pricing breakdown, history and approve/reject/request-changes actions.",
+      "acceptanceCriteria": [
+        "Lines are read-only for approvers",
+        "Comment required for reject and request changes",
+        "Stale-version errors are explained"
+      ]
+    },
+    {
+      "id": "DF-045",
+      "title": "Share approved versions with customer contacts through explicit grants",
+      "milestone": "M5",
+      "prdRefs": ["FR-09", "D-12"],
+      "adrRefs": ["ADR-0018"],
+      "estimateHours": 3,
+      "status": "pending",
+      "dependsOn": ["DF-037"],
+      "labels": ["backend", "security"],
+      "description": "Create and revoke customer_quote_grants for approved versions only.",
+      "acceptanceCriteria": [
+        "Sharing an unapproved version returns 409",
+        "Grants are per version and contact",
+        "Sharing and revocation are audited"
+      ]
+    },
+    {
+      "id": "DF-046",
+      "title": "Build printable proposal HTML view and terms",
+      "milestone": "M5",
+      "prdRefs": ["FR-09", "D-18"],
+      "adrRefs": ["ADR-0018"],
+      "estimateHours": 4,
+      "status": "pending",
+      "dependsOn": ["DF-035"],
+      "labels": ["backend", "frontend"],
+      "description": "Branded print-optimized proposal with buyer and seller details, lines, separate one-time and recurring totals, validity, terms and quote ID/version.",
+      "acceptanceCriteria": [
+        "No cost or margin appears in the markup",
+        "Print stylesheet produces a legible page",
+        "Recurring totals are labelled per month"
+      ]
+    },
+    {
+      "id": "DF-047",
+      "title": "Build customer portal API with redaction, expiry and single acknowledgment",
+      "milestone": "M5",
+      "prdRefs": ["FR-09", "D-13", "D-14", "D-15", "D-16"],
+      "adrRefs": ["ADR-0018"],
+      "estimateHours": 5,
+      "status": "pending",
+      "dependsOn": ["DF-045"],
+      "labels": ["backend", "security"],
+      "description": "List, view and acknowledge shared versions using a redacted DTO; enforce grants, expiry and one acknowledgment per version.",
+      "acceptanceCriteria": [
+        "Responses never include cost, margin or internal notes",
+        "Access without a grant returns 404",
+        "Expired versions reject acceptance with renewal instructions"
+      ]
+    },
+    {
+      "id": "DF-048",
+      "title": "Build customer quote view and accept/reject screen",
+      "milestone": "M5",
+      "prdRefs": ["FR-09", "§4.17"],
+      "adrRefs": ["ADR-0018"],
+      "estimateHours": 3,
+      "status": "pending",
+      "dependsOn": ["DF-047"],
+      "labels": ["frontend", "ux"],
+      "description": "Customer view of a shared proposal with accept or reject and an optional note.",
+      "acceptanceCriteria": [
+        "Acceptance is labelled as a demo acknowledgment, not an electronic signature",
+        "Outcome and timestamp shown after decision",
+        "Expired quotes show renewal guidance"
+      ]
+    },
+    {
+      "id": "DF-049",
+      "title": "Build sales dashboard API and screen",
+      "milestone": "M6",
+      "prdRefs": ["FR-10", "§4.2"],
+      "adrRefs": [],
+      "estimateHours": 5,
+      "status": "pending",
+      "dependsOn": ["DF-041", "DF-047"],
+      "labels": ["backend", "frontend"],
+      "description": "Draft value, pending approvals, approved vs accepted counts, discount exception rate, average approved margin and quotes expiring soon.",
+      "acceptanceCriteria": [
+        "Figures come from SQL, not fixtures",
+        "Quoted revenue is labelled as quoted, never realized",
+        "Scoped by role visibility"
+      ]
+    },
+    {
+      "id": "DF-050",
+      "title": "Build quote reports API",
+      "milestone": "M6",
+      "prdRefs": ["FR-10", "D-21"],
+      "adrRefs": [],
+      "estimateHours": 5,
+      "status": "pending",
+      "dependsOn": ["DF-041", "DF-047"],
+      "labels": ["backend"],
+      "description": "Revenue quoted by month, win rate with explicit denominator, discount trend, frequently quoted SKUs and approval turnaround with filters.",
+      "acceptanceCriteria": [
+        "Win rate denominator is accepted plus rejected",
+        "Filters by date, customer, owner and status",
+        "No realized revenue is reported"
+      ]
+    },
+    {
+      "id": "DF-051",
+      "title": "Build reports screen with filters and CSV export",
+      "milestone": "M6",
+      "prdRefs": ["FR-10", "§4.18", "D-21"],
+      "adrRefs": [],
+      "estimateHours": 4,
+      "status": "pending",
+      "dependsOn": ["DF-050"],
+      "labels": ["frontend", "backend"],
+      "description": "Report views and a CSV export that reflects the same filtered SQL data.",
+      "acceptanceCriteria": [
+        "CSV matches on-screen filtered results",
+        "Export requires reports:read",
+        "CSV cells are escaped against formula injection"
+      ]
+    },
+    {
+      "id": "DF-052",
+      "title": "Deliver in-app notifications and background worker",
+      "milestone": "M6",
+      "prdRefs": ["FR-10"],
+      "adrRefs": ["ADR-0012"],
+      "estimateHours": 5,
+      "status": "pending",
+      "dependsOn": ["DF-041", "DF-042", "DF-047"],
+      "labels": ["backend", "frontend"],
+      "description": "Notifications for approval request, decision, quote expiry and customer acknowledgment, with read state.",
+      "acceptanceCriteria": [
+        "Notifications are created in the same transaction as the event",
+        "Users see only their own notifications",
+        "Mark-as-read is idempotent"
+      ]
+    },
+    {
+      "id": "DF-053",
+      "title": "Build audit log API and timeline screen",
+      "milestone": "M6",
+      "prdRefs": ["FR-10", "§4.19"],
+      "adrRefs": ["ADR-0008"],
+      "estimateHours": 3,
+      "status": "pending",
+      "dependsOn": ["DF-003"],
+      "labels": ["backend", "frontend"],
+      "description": "Filterable audit history for prices, rules, revisions, approvals, sharing and acceptance.",
+      "acceptanceCriteria": [
+        "Only audit:read roles can query",
+        "Paginated, newest first",
+        "Audit rows are never updated or deleted"
+      ]
+    },
+    {
+      "id": "DF-054",
+      "title": "Add scheduled quote expiry job",
+      "milestone": "M6",
+      "prdRefs": ["FR-06", "FR-10"],
+      "adrRefs": ["ADR-0012"],
+      "estimateHours": 2,
+      "status": "pending",
+      "dependsOn": ["DF-037", "DF-052"],
+      "labels": ["backend"],
+      "description": "Periodic job that expires SENT versions past valid_until using the server clock and notifies owners.",
+      "acceptanceCriteria": [
+        "Job is idempotent",
+        "Expiry transitions are audited",
+        "Owner is notified once"
+      ]
+    },
+    {
+      "id": "DF-055",
+      "title": "Automate acceptance tests D-01 to D-04 (quote creation and configuration)",
+      "milestone": "M7",
+      "prdRefs": ["D-01", "D-02", "D-03", "D-04"],
+      "adrRefs": ["ADR-0010"],
+      "estimateHours": 4,
+      "status": "pending",
+      "dependsOn": ["DF-036", "DF-040"],
+      "labels": ["testing"],
+      "description": "Playwright specs against real PostgreSQL for draft creation, configuration validation and bundles.",
+      "acceptanceCriteria": [
+        "Specs use seeded data, not mocked APIs",
+        "Each spec is independent",
+        "Runs in CI"
+      ]
+    },
+    {
+      "id": "DF-056",
+      "title": "Automate acceptance tests D-05 to D-11 (pricing, tampering and approval gates)",
+      "milestone": "M7",
+      "prdRefs": ["D-05", "D-06", "D-07", "D-08", "D-09", "D-10", "D-11"],
+      "adrRefs": ["ADR-0010"],
+      "estimateHours": 5,
+      "status": "pending",
+      "dependsOn": ["DF-042"],
+      "labels": ["testing"],
+      "description": "Playwright specs for discount stacking, tampered totals, approval thresholds, self-approval and stale versions.",
+      "acceptanceCriteria": [
+        "Totals asserted against reference integer arithmetic",
+        "Backend denials asserted via API as well as UI",
+        "Runs in CI"
+      ]
+    },
+    {
+      "id": "DF-057",
+      "title": "Automate acceptance tests D-12 to D-16 (sharing and customer portal)",
+      "milestone": "M7",
+      "prdRefs": ["D-12", "D-13", "D-14", "D-15", "D-16"],
+      "adrRefs": ["ADR-0010"],
+      "estimateHours": 4,
+      "status": "pending",
+      "dependsOn": ["DF-048"],
+      "labels": ["testing"],
+      "description": "Playwright specs for sharing rules, redaction, cross-customer access, expiry and acknowledgment.",
+      "acceptanceCriteria": [
+        "Redaction verified by inspecting API JSON",
+        "Direct API access attempts are denied",
+        "Runs in CI"
+      ]
+    },
+    {
+      "id": "DF-058",
+      "title": "Automate acceptance tests D-17 to D-21 (history, print, isolation, persistence, reports)",
+      "milestone": "M7",
+      "prdRefs": ["D-17", "D-18", "D-19", "D-20", "D-21"],
+      "adrRefs": ["ADR-0010"],
+      "estimateHours": 4,
+      "status": "pending",
+      "dependsOn": ["DF-046", "DF-051"],
+      "labels": ["testing"],
+      "description": "Playwright specs for archived product snapshots, print view, cross-tenant denial, restart persistence and report filters.",
+      "acceptanceCriteria": [
+        "Restart test restarts the API process",
+        "Cross-tenant access returns 404",
+        "Runs in CI"
+      ]
+    },
+    {
+      "id": "DF-059",
+      "title": "Support organization logo upload for proposal branding",
+      "milestone": "M7",
+      "prdRefs": ["§2", "FR-09"],
+      "adrRefs": ["ADR-0011"],
+      "estimateHours": 3,
+      "status": "pending",
+      "dependsOn": ["DF-010", "DF-046"],
+      "labels": ["backend", "frontend", "security"],
+      "description": "Local-disk logo upload with type and size validation used on the printable proposal.",
+      "acceptanceCriteria": [
+        "Only PNG/JPEG/SVG-sanitized up to the configured size",
+        "Stored outside the web root with random names",
+        "Upload is audited"
+      ]
+    },
+    {
+      "id": "DF-060",
+      "title": "Run accessibility and responsive audit (WCAG 2.1 AA)",
+      "milestone": "M7",
+      "prdRefs": ["§4"],
+      "adrRefs": [],
+      "estimateHours": 3,
+      "status": "pending",
+      "dependsOn": ["DF-036", "DF-044", "DF-048"],
+      "labels": ["ux", "frontend", "testing"],
+      "description": "Audit quote builder, approval and customer screens with keyboard and screen-reader checks and fix findings.",
+      "acceptanceCriteria": [
+        "axe checks pass on key screens",
+        "All actions reachable by keyboard",
+        "Layouts usable at 360px width"
+      ]
+    },
+    {
+      "id": "DF-061",
+      "title": "Package production container image and deployment pipeline",
+      "milestone": "M7",
+      "prdRefs": ["§11"],
+      "adrRefs": ["ADR-0009"],
+      "estimateHours": 4,
+      "status": "pending",
+      "dependsOn": ["DF-001"],
+      "labels": ["devops"],
+      "description": "Multi-stage container image, migrations as a release step and a deployment workflow per docs/operations/deployment.md.",
+      "acceptanceCriteria": [
+        "Image runs as non-root and contains no dev dependencies",
+        "Migrations run once per release before traffic shifts",
+        "Secrets come from the environment only"
+      ]
+    }
+  ]
+}
